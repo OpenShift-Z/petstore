@@ -1,0 +1,129 @@
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: multiarch-petstore-build-and-deploy
+  namespace: petstore
+spec:
+  params:
+    - default: petstore
+      name: deployment-name
+      type: string
+    - default: 'https://github.com/OpenShift-Z/petstore.git'
+      description: url of the git repo for petstore deployment
+      name: git-url
+      type: string
+    - default: main
+      description: revision of the git repo to be deployed
+      name: git-revision
+      type: string
+    - default: jpetstore/
+      description: Context directory for buildah to use (appended to /workspace/source/)
+      name: buildah-context
+      type: string
+    - default: ./Dockerfile
+      description: path to dockerfile for buildah to use relative to the context directory
+      name: dockerfile-path
+      type: string
+    - default: 'image-registry.openshift-image-registry.svc:5000'
+      description: where should the multi-arch manifest be pushed
+      name: dest-registry
+      type: string
+  tasks:
+    - name: fetch-repository
+      params:
+        - name: url
+          value: $(params.git-url)
+        - name: revision
+          value: $(params.git-revision)
+        - name: deleteExisting
+          value: 'true'
+      taskRef:
+        kind: ClusterTask
+        name: git-clone
+      workspaces:
+        - name: output
+          workspace: shared-ws
+    - name: s390x-build
+      params:
+        - name: IMAGE
+          value: >-
+            image-registry.openshift-image-registry.svc:5000/$(context.pipelineRun.namespace)/$(params.deployment-name):s390x
+        - name: CONTEXT
+          value: /workspace/source/$(params.buildah-context)
+        - name: DOCKERFILE
+          value: $(params.dockerfile-path)
+        - name: FORMAT
+          value: docker
+        - name: SKIP_PUSH
+          value: 'false'
+      runAfter:
+        - fetch-repository
+      taskRef:
+        kind: ClusterTask
+        name: buildah
+      workspaces:
+        - name: source
+          workspace: shared-ws
+    - name: x86-build
+      params:
+        - name: IMAGE
+          value: >-
+            image-registry.openshift-image-registry.svc:5000/$(context.pipelineRun.namespace)/$(params.deployment-name):x86
+        - name: CONTEXT
+          value: /workspace/source/$(params.buildah-context)
+        - name: DOCKERFILE
+          value: $(params.dockerfile-path)
+        - name: FORMAT
+          value: docker
+        - name: SKIP_PUSH
+          value: 'false'
+      runAfter:
+        - fetch-repository
+      taskRef:
+        kind: ClusterTask
+        name: buildah
+      workspaces:
+        - name: source
+          workspace: shared-ws
+    - name: assemble-manifest
+      params:
+        - name: manifest-name
+          value: >-
+            $(params.dest-registry)/$(context.pipelineRun.namespace)/$(params.deployment-name):latest
+        - name: image-name
+          value: >-
+            image-registry.openshift-image-registry.svc:5000/$(context.pipelineRun.namespace)/$(params.deployment-name)
+        - name: tags
+          value: 'x86,s390x'
+      runAfter:
+        - s390x-build
+        - x86-build
+      taskRef:
+        kind: ClusterTask
+        name: assemble-manifest
+    - name: create-deployment
+      params:
+        - name: SCRIPT
+          value: >
+            oc new-app --image
+            $(params.dest-registry)/$(context.pipelineRun.namespace)/$(params.deployment-name):latest
+            -n $(context.pipelineRun.namespace) --name $(params.deployment-name)
+            --import-mode=PreserveOriginal
+      runAfter:
+        - assemble-manifest
+      taskRef:
+        kind: ClusterTask
+        name: openshift-client
+    - name: expose-service
+      params:
+        - name: SCRIPT
+          value: >
+            oc expose service/$(params.deployment-name)-x86 -n
+            $(context.pipelineRun.namespace) || true
+      runAfter:
+        - create-deployment
+      taskRef:
+        kind: ClusterTask
+        name: openshift-client
+  workspaces:
+    - name: shared-ws

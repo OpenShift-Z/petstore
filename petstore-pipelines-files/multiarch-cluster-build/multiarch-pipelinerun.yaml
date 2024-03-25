@@ -1,0 +1,51 @@
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  name: build-and-deploy-petstore-egtj33
+  namespace: petstore
+spec:
+  params:
+    - name: deployment-name
+      value: petstore
+    - name: git-url
+      value: 'https://github.com/OpenShift-Z/petstore.git'
+    - name: git-revision
+      value: main
+    - name: buildah-context
+      value: jpetstore/
+    - name: dockerfile-path
+      value: ./Dockerfile
+    - name: dest-registry
+      value: 'image-registry.openshift-image-registry.svc:5000'
+  pipelineRef:
+    name: multiarch-petstore-build-and-deploy
+  taskRunSpecs:
+    - pipelineTaskName: s390x-build
+      podTemplate:
+        nodeSelector:
+          kubernetes.io/arch: s390x
+    # note here that we use `amd64` since this is what OCP uses
+    # if no nodes match the specified arch, the task will be stuck
+    # at pending
+    - pipelineTaskName: x86-build
+      podTemplate:
+        nodeSelector:
+          kubernetes.io/arch: amd64
+  taskRunTemplate:
+    serviceAccountName: pipeline
+  timeouts:
+    pipeline: 1h0m0s
+  workspaces:
+    - name: shared-ws
+      volumeClaimTemplate:
+        metadata:
+          creationTimestamp: null
+        spec:
+          accessModes:
+            - ReadWriteOnce
+          resources:
+            requests:
+              storage: 1Gi
+          storageClassName: ocs-storagecluster-cephfs
+          volumeMode: Filesystem
+        status: {}

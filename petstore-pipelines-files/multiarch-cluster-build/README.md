@@ -1,0 +1,4 @@
+# multiarch-cluster-build
+The pipeline files in this directory are an alternative to my previously presented method (available [here](https://ibm.biz/BdyaPz)) for completing multiarch native builds in OpenShift. Rather than using multiple clusters, this method is designed for a single multi-arch cluster. Support for a multiarch cluster was added to OCP 4.14 (docs [here](https://docs.openshift.com/container-platform/4.14/post_installation_configuration/configuring-multi-arch-compute-machines/multi-architecture-configuration.html)).
+See [my experience report]() where I describe setting up a multiarch cluster on KVM with x86 managers and both x86 and s390x workers. 
+I also have [an experience report]() where I include more details of setting up a multiarch OCP cluster on KVM with x86 managers and s390x workers.

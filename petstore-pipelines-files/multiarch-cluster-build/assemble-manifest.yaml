@@ -1,0 +1,52 @@
+# modified from https://github.com/OpenShift-Z/ocp-pipelines/blob/main/shared-pipeline-resources/assemble-manifest-task.yaml
+# Changes:
+#    - Use latest buildah image (meant for proxied/connected cluster)
+#    - Remove image registry creds workspaces since using internal image registry
+# see the associated experience report for more details:
+# 
+apiVersion: tekton.dev/v1beta1
+kind: ClusterTask
+metadata:
+  name: assemble-manifest
+spec:
+  params:
+    - description: Full manifest name including the registry and tag
+      name: manifest-name
+      type: string
+    - description: 'Full image name without tag, all images should use the same base name'
+      name: image-name
+      type: string
+    - description: comma separated list of tags to include in the manifest
+      name: tags
+      type: string
+  steps:
+    - image: 'registry.redhat.io/rhel8/buildah:latest'
+      name: create-manifest
+      resources: {}
+      script: >
+        #!/bin/bash 
+
+        set -x
+
+        tmpName="tmp-manifest:latest"
+
+        buildah manifest create "$tmpName"
+
+        tags="$(params.tags)"
+
+        for i in ${tags//,/ }
+
+        do
+
+          buildah manifest add "$tmpName" $(params.image-name):$i --tls-verify=false
+
+        done
+
+        buildah manifest inspect "$tmpName"
+
+        buildah manifest push $tmpName "docker://$(params.manifest-name)"
+        --tls-verify=false --all
+      securityContext:
+        capabilities:
+          add:
+            - SETFCAP
